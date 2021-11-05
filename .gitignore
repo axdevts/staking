@@ -10,3 +10,6 @@ artifacts
 .env.production.local
 .env.sit
 .env.uat
+
+package-lock.json
+yarn.lock
