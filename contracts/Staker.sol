@@ -9,7 +9,7 @@ contract Staker is Ownable {
     using SafeMath for uint256;
     RewardToken public rewardToken;
 
-    event DepositeFinished(address indexed user, uint256 amount);
+    event StakeFinished(address indexed user, uint256 amount);
     event WithdrawFinished(address indexed user, uint256 amount);
     event ClaimFinished(address indexed user, uint256 amount);
     event ChangedWithdrawFeeApplyStatus(
@@ -19,7 +19,9 @@ contract Staker is Ownable {
     event ChangedRewardRate(uint256 _rewardRate);
 
     uint256 rewardRate = 10000; // per month as total rewards
-    uint256 totalDepositedAmount;
+    uint256 totalStakedAmount;
+    uint256 MIN_AMOUNT = 1000; // per staking amount
+    uint256 MIN_TIME = 24 * 3600; // can staking minimum time
 
     struct StakeList {
         uint256 stakesAmount;
@@ -46,10 +48,10 @@ contract Staker is Ownable {
      * @notice A method for investor/staker to create/add the diposite.
      * @param _amount The amount of the diposite to be created.
      */
-    function deposite(uint256 _amount) public returns (bool) {
+    function Stake(uint256 _amount) public returns (bool) {
         require(
             rewardToken.balanceOf(msg.sender) >= _amount,
-            "Please deposite more in your card!"
+            "Please stake more in your card!"
         );
         require(
             _amount > 0,
@@ -59,11 +61,11 @@ contract Staker is Ownable {
         rewardToken.transferFrom(msg.sender, address(this), _amount);
         StakeList storage _personStakeSatus = stakeLists[msg.sender];
         _personStakeSatus.rewardsAmount = updateReward(msg.sender);
-        totalDepositedAmount += _amount;
+        totalStakedAmount += _amount;
         _personStakeSatus.stakesAmount += _amount;
         _personStakeSatus.lastUpdateTime = block.timestamp;
 
-        emit DepositeFinished(msg.sender, _amount);
+        emit StakeFinished(msg.sender, _amount);
 
         return true;
     }
@@ -82,12 +84,16 @@ contract Staker is Ownable {
         );
         require(
             _amount <= _personStakeSatus.stakesAmount,
-            "The amount to be transferred should be equal or less than Deposite"
+            "The amount to be transferred should be equal or less than Stake"
+        );
+        require(
+            _personStakeSatus.lastUpdateTime > MIN_TIME,
+            "You should be wait at least 24 hours from scratch."
         );
 
         rewardToken.transfer(msg.sender, _amount);
         _personStakeSatus.rewardsAmount = updateReward(msg.sender);
-        totalDepositedAmount -= _amount;
+        totalStakedAmount -= _amount;
         _personStakeSatus.stakesAmount -= _amount;
         _personStakeSatus.lastUpdateTime = block.timestamp;
 
@@ -136,7 +142,7 @@ contract Staker is Ownable {
                     .sub(_personStakeSatus.lastUpdateTime)
                     .mul(rewardRate)
                     .mul(_personStakeSatus.stakesAmount)
-                    .div(totalDepositedAmount)
+                    .div(totalStakedAmount)
                     .div(86400)
                     .div(30)
             );
@@ -180,7 +186,7 @@ contract Staker is Ownable {
      * @param _stakeholder The stakeholder address.
      * @return uint256 The amount of tokens.
      */
-    function depositeOf(address _stakeholder) public view returns (uint256) {
+    function stakeOf(address _stakeholder) public view returns (uint256) {
         StakeList storage _personStakeSatus = stakeLists[_stakeholder];
         return _personStakeSatus.stakesAmount;
     }
@@ -198,8 +204,8 @@ contract Staker is Ownable {
     /**
      * @notice A method to get the total amount of the deposied tokens
      */
-    function getTotalDepositedAmount() public view returns (uint256) {
-        return totalDepositedAmount;
+    function getTotalStakedAmount() public view returns (uint256) {
+        return totalStakedAmount;
     }
 
     /**

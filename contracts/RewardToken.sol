@@ -10,7 +10,7 @@ contract RewardToken is ERC20, Ownable {
      * All two of these values are immutable: they can only be set once during
      * construction.
      */
-    constructor() ERC20("RewardToken", "GLD") {}
+    constructor() ERC20("RewardToken", "CBC") {}
 
     /** @dev Allows the only owner to mint
      * Creates `amount` tokens and assigns them to `account`, increasing
