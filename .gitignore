@@ -1,8 +1,10 @@
 node_modules
 build
+#Hardhat files
 cache
 artifacts
 
+secrets.json
 .env
 .env.local
 .env.development.local
