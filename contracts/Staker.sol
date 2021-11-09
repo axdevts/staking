@@ -26,6 +26,7 @@ contract Staker is Ownable {
     struct StakeList {
         uint256 stakesAmount;
         uint256 rewardsAmount;
+        uint256 firstUpdateTime;
         uint256 lastUpdateTime;
     }
 
@@ -57,13 +58,14 @@ contract Staker is Ownable {
             _amount > 0,
             "The amount to be transferred should be larger than 0"
         );
-
         rewardToken.transferFrom(msg.sender, address(this), _amount);
-        StakeList storage _personStakeSatus = stakeLists[msg.sender];
-        _personStakeSatus.rewardsAmount = updateReward(msg.sender);
+        StakeList storage _personStakeStatus = stakeLists[msg.sender];
+        if (_personStakeStatus.firstUpdateTime == 0)
+            _personStakeStatus.firstUpdateTime = block.timestamp;
+        _personStakeStatus.rewardsAmount = updateReward(msg.sender);
         totalStakedAmount += _amount;
-        _personStakeSatus.stakesAmount += _amount;
-        _personStakeSatus.lastUpdateTime = block.timestamp;
+        _personStakeStatus.stakesAmount += _amount;
+        _personStakeStatus.lastUpdateTime = block.timestamp;
 
         emit StakeFinished(msg.sender, _amount);
 
@@ -75,27 +77,22 @@ contract Staker is Ownable {
      * @param _amount The amount of the withdraw.
      */
     function withdraw(uint256 _amount) public returns (bool) {
-        StakeList storage _personStakeSatus = stakeLists[msg.sender];
+        StakeList storage _personStakeStatus = stakeLists[msg.sender];
 
-        require(_personStakeSatus.stakesAmount != 0, "No stake");
+        require(_personStakeStatus.stakesAmount != 0, "No stake");
         require(
             _amount > 0,
             "The amount to be transferred should be larger than 0"
         );
         require(
-            _amount <= _personStakeSatus.stakesAmount,
+            _amount <= _personStakeStatus.stakesAmount,
             "The amount to be transferred should be equal or less than Stake"
-        );
-        require(
-            _personStakeSatus.lastUpdateTime > MIN_TIME,
-            "You should be wait at least 24 hours from scratch."
         );
 
         rewardToken.transfer(msg.sender, _amount);
-        _personStakeSatus.rewardsAmount = updateReward(msg.sender);
         totalStakedAmount -= _amount;
-        _personStakeSatus.stakesAmount -= _amount;
-        _personStakeSatus.lastUpdateTime = block.timestamp;
+        _personStakeStatus.stakesAmount -= _amount;
+        _personStakeStatus.lastUpdateTime = block.timestamp;
 
         emit WithdrawFinished(msg.sender, _amount);
 
@@ -106,15 +103,22 @@ contract Staker is Ownable {
      * @notice A method to allow the stakeholder to claim his rewards.
      */
     function claimReward() public returns (bool) {
-        StakeList storage _personStakeSatus = stakeLists[msg.sender];
-        _personStakeSatus.rewardsAmount = updateReward(msg.sender);
-        require(_personStakeSatus.rewardsAmount != 0, "No rewards");
+        StakeList storage _personStakeStatus = stakeLists[msg.sender];
+        _personStakeStatus.rewardsAmount = updateReward(msg.sender);
+        require(
+            _personStakeStatus.stakesAmount > 1000,
+            "The staked amount is smalll than 1,000CBC"
+        );
+        require(
+            (block.timestamp - _personStakeStatus.firstUpdateTime) > MIN_TIME,
+            "You should be wait at least 24 hours from scratch."
+        );
 
-        uint256 getRewardAmount = _personStakeSatus.rewardsAmount;
+        uint256 getRewardAmount = _personStakeStatus.rewardsAmount;
 
         rewardToken.transfer(msg.sender, getRewardAmount);
-        _personStakeSatus.rewardsAmount = 0;
-        _personStakeSatus.lastUpdateTime = block.timestamp;
+        _personStakeStatus.rewardsAmount = 0;
+        _personStakeStatus.lastUpdateTime = block.timestamp;
 
         emit ClaimFinished(msg.sender, getRewardAmount);
 
@@ -187,8 +191,8 @@ contract Staker is Ownable {
      * @return uint256 The amount of tokens.
      */
     function stakeOf(address _stakeholder) public view returns (uint256) {
-        StakeList storage _personStakeSatus = stakeLists[_stakeholder];
-        return _personStakeSatus.stakesAmount;
+        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
+        return _personStakeStatus.stakesAmount;
     }
 
     /**
@@ -197,8 +201,8 @@ contract Staker is Ownable {
      * @return uint256 The amount of tokens.
      */
     function rewardOf(address _stakeholder) public view returns (uint256) {
-        StakeList storage _personStakeSatus = stakeLists[_stakeholder];
-        return _personStakeSatus.rewardsAmount;
+        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
+        return _personStakeStatus.rewardsAmount;
     }
 
     /**
@@ -232,13 +236,13 @@ contract Staker is Ownable {
         public
         returns (bool)
     {
-        StakeList storage _personStakeSatus = stakeLists[_stakeholder];
-        _personStakeSatus.lastUpdateTime = _lastTime;
+        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
+        _personStakeStatus.lastUpdateTime = _lastTime;
         return true;
     }
 
     function getLastTime(address _stakeholder) public view returns (uint256) {
-        StakeList storage _personStakeSatus = stakeLists[_stakeholder];
-        return _personStakeSatus.lastUpdateTime;
+        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
+        return _personStakeStatus.lastUpdateTime;
     }
 }
