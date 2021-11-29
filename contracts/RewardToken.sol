@@ -10,13 +10,14 @@ contract RewardToken is ERC20, Ownable {
      * All two of these values are immutable: they can only be set once during
      * construction.
      */
-    constructor() ERC20("RewardToken", "CBC") {}
+    constructor() ERC20("CBC GEM", "CBCGEM") {
+    }
 
     /** @dev Allows the only owner to mint
      * Creates `amount` tokens and assigns them to `account`, increasing
      * the total supply.
      */
-    function mintRewardToken(address account, uint256 amount) public onlyOwner {
+    function mint(address account, uint256 amount) public onlyOwner {
         _mint(account, amount);
     }
 }

@@ -1,34 +1,47 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
 
-import "./RewardToken.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "./utils/IERC20.sol";
+import "./utils/Initializable.sol";
+import "./utils/SafeMath.sol";
+import "./utils/Ownable.sol";
 
-contract Staker is Ownable {
+contract Staker is Initializable, Ownable {
     using SafeMath for uint256;
-    RewardToken public rewardToken;
+    IERC20 public cbcToken;
+    IERC20 public rewardToken;
 
-    event StakeFinished(address indexed user, uint256 amount);
-    event WithdrawFinished(address indexed user, uint256 amount);
-    event ClaimFinished(address indexed user, uint256 amount);
+    event DepositFinished(
+        address indexed user,
+        uint256 amount,
+        uint256 depositAt
+    );
+    event WithdrawFinished(
+        address indexed user,
+        uint256 amount,
+        uint256 withdrawAt
+    );
+    event ClaimFinished(address indexed user, uint256 amount, uint256 claimAt);
     event ChangedWithdrawFeeApplyStatus(
         address indexed user,
         bool applyFeeStatus
     );
     event ChangedRewardRate(uint256 _rewardRate);
 
-    uint256 rewardRate = 10000; // per month as total rewards
-    uint256 totalStakedAmount;
-    uint256 MIN_AMOUNT = 1000; // per staking amount
-    uint256 MIN_TIME = 24 * 3600; // can staking minimum time
+    uint256 minDeposit;
+    uint256 rewardRate; // per month as total rewards
+    uint256 totalDepositAmount;
+    uint256 lockTime;
+    bool lockEnabled;
 
     struct StakeList {
         uint256 stakesAmount;
         uint256 rewardsAmount;
-        uint256 firstUpdateTime;
+        uint256 availableClaimTime;
         uint256 lastUpdateTime;
     }
+
+    bool enabled;
 
     /**
      * @notice The accumulated stake status for each stakeholder.
@@ -37,46 +50,65 @@ contract Staker is Ownable {
     mapping(address => bool) public withdrawFeeApplyStatus;
 
     /**
-     * @dev Creates a staker contract that handles the diposite, withdraw, getReward features
+     * @dev Creates a staker contract that handles the diposit, withdraw, getReward features
      * for RewardToken tokens.
      * @param _tokenAddress RewardToken contract addresss that is already deployed
+     * @param _cbcAddress cbc contract addresss that is already deployed
      */
-    constructor(RewardToken _tokenAddress) {
+    function initialize(IERC20 _tokenAddress, IERC20 _cbcAddress)
+        public
+        initializer
+    {
         rewardToken = _tokenAddress;
+        cbcToken = _cbcAddress;
+
+        minDeposit = 1000;
+        rewardRate = 1000;
+        lockTime = 86400; /// 24 hours
+        enabled = true;
+        lockEnabled = false;
+
+        __Ownable_init();
     }
 
     /**
-     * @notice A method for investor/staker to create/add the diposite.
-     * @param _amount The amount of the diposite to be created.
+     * @notice A method for investor/staker to create/add the diposit.
+     * @param _amount The amount of the diposit to be created.
      */
-    function Stake(uint256 _amount) public returns (bool) {
+    function deposit(uint256 _amount) external {
+        require(enabled == true, "Staking Contract is disabled for a while");
         require(
-            rewardToken.balanceOf(msg.sender) >= _amount,
-            "Please stake more in your card!"
+            cbcToken.balanceOf(msg.sender) >= _amount,
+            "Please deposit more cbc to your wallet!"
         );
         require(
-            _amount > 0,
-            "The amount to be transferred should be larger than 0"
+            _amount > minDeposit,
+            "Deposit amount should be larger than minimum deposit amount"
         );
-        rewardToken.transferFrom(msg.sender, address(this), _amount);
+
+        cbcToken.transferFrom(msg.sender, address(this), _amount);
         StakeList storage _personStakeStatus = stakeLists[msg.sender];
-        if (_personStakeStatus.firstUpdateTime == 0)
-            _personStakeStatus.firstUpdateTime = block.timestamp;
         _personStakeStatus.rewardsAmount = updateReward(msg.sender);
-        totalStakedAmount += _amount;
+        if (_personStakeStatus.stakesAmount == 0) {
+            _personStakeStatus.availableClaimTime = block.timestamp + lockTime;
+        }
+        totalDepositAmount += _amount;
         _personStakeStatus.stakesAmount += _amount;
         _personStakeStatus.lastUpdateTime = block.timestamp;
 
-        emit StakeFinished(msg.sender, _amount);
-
-        return true;
+        emit DepositFinished(
+            msg.sender,
+            _amount,
+            _personStakeStatus.lastUpdateTime
+        );
     }
 
     /**
      * @notice A method for the stakeholder to withdraw.
      * @param _amount The amount of the withdraw.
      */
-    function withdraw(uint256 _amount) public returns (bool) {
+    function withdraw(uint256 _amount) external {
+        require(enabled == true, "Staking Contract is disabled for a while");
         StakeList storage _personStakeStatus = stakeLists[msg.sender];
 
         require(_personStakeStatus.stakesAmount != 0, "No stake");
@@ -86,43 +118,48 @@ contract Staker is Ownable {
         );
         require(
             _amount <= _personStakeStatus.stakesAmount,
-            "The amount to be transferred should be equal or less than Stake"
+            "The amount to be transferred should be equal or less than Deposite"
         );
 
-        rewardToken.transfer(msg.sender, _amount);
-        totalStakedAmount -= _amount;
+        cbcToken.transfer(msg.sender, _amount);
+        _personStakeStatus.rewardsAmount = updateReward(msg.sender);
+        totalDepositAmount -= _amount;
         _personStakeStatus.stakesAmount -= _amount;
         _personStakeStatus.lastUpdateTime = block.timestamp;
 
-        emit WithdrawFinished(msg.sender, _amount);
-
-        return true;
+        emit WithdrawFinished(
+            msg.sender,
+            _amount,
+            _personStakeStatus.lastUpdateTime
+        );
     }
 
     /**
      * @notice A method to allow the stakeholder to claim his rewards.
      */
-    function claimReward() public returns (bool) {
+    function claimReward() external {
+        require(enabled == true, "Staking Contract is disabled for a while");
         StakeList storage _personStakeStatus = stakeLists[msg.sender];
+        if (lockEnabled) {
+            require(
+                _personStakeStatus.availableClaimTime > block.timestamp,
+                "Cannot withdraw within lock time from first deposit"
+            );
+        }
         _personStakeStatus.rewardsAmount = updateReward(msg.sender);
-        require(
-            _personStakeStatus.stakesAmount > 1000,
-            "The staked amount is smalll than 1,000CBC"
-        );
-        require(
-            (block.timestamp - _personStakeStatus.firstUpdateTime) > MIN_TIME,
-            "You should be wait at least 24 hours from scratch."
-        );
+        require(_personStakeStatus.rewardsAmount != 0, "No rewards");
 
         uint256 getRewardAmount = _personStakeStatus.rewardsAmount;
 
-        rewardToken.transfer(msg.sender, getRewardAmount);
+        rewardToken.mint(msg.sender, getRewardAmount);
         _personStakeStatus.rewardsAmount = 0;
         _personStakeStatus.lastUpdateTime = block.timestamp;
 
-        emit ClaimFinished(msg.sender, getRewardAmount);
-
-        return true;
+        emit ClaimFinished(
+            msg.sender,
+            getRewardAmount,
+            _personStakeStatus.lastUpdateTime
+        );
     }
 
     /**
@@ -133,22 +170,21 @@ contract Staker is Ownable {
      * @param _account The stakeholder to retrieve the stake rewards for.
      * @return uint256 The amount of tokens.
      */
-    function updateReward(address _account) public view returns (uint256) {
-        StakeList storage _personStakeSatus = stakeLists[_account];
+    function updateReward(address _account) internal view returns (uint256) {
+        StakeList storage _personStakeStatus = stakeLists[_account];
 
-        if (_personStakeSatus.stakesAmount == 0) {
-            return _personStakeSatus.rewardsAmount;
+        if (_personStakeStatus.stakesAmount == 0) {
+            return _personStakeStatus.rewardsAmount;
         }
         return
-            _personStakeSatus.rewardsAmount.add(
+            _personStakeStatus.rewardsAmount.add(
                 block
                     .timestamp
-                    .sub(_personStakeSatus.lastUpdateTime)
+                    .sub(_personStakeStatus.lastUpdateTime)
                     .mul(rewardRate)
-                    .mul(_personStakeSatus.stakesAmount)
-                    .div(totalStakedAmount)
+                    .mul(_personStakeStatus.stakesAmount)
+                    .div(100000000)
                     .div(86400)
-                    .div(30)
             );
     }
 
@@ -186,11 +222,43 @@ contract Staker is Ownable {
     }
 
     /**
+     * @notice update minimum deposit amount
+     * @param _amount new minimum deposit amount
+     */
+    function setMinimumDepositAmount(uint256 _amount) external onlyOwner {
+        minDeposit = _amount;
+    }
+
+    /**
+     * @notice change staking contract status
+     * @param _status updated status
+     */
+    function updateStatus(bool _status) external onlyOwner {
+        enabled = _status;
+    }
+
+    /**
+     * @notice change lock time status
+     * @param _status updated status
+     */
+    function updateLockEnabled(bool _status) external onlyOwner {
+        lockEnabled = _status;
+    }
+
+    /**
+     * @notice set lock time
+     * @param _lockTime new lock time
+     */
+    function setLockTime(uint256 _lockTime) external onlyOwner {
+        lockTime = _lockTime;
+    }
+
+    /**
      * @notice A method to retrieve the amount of depoiste for a stakeholder.
      * @param _stakeholder The stakeholder address.
      * @return uint256 The amount of tokens.
      */
-    function stakeOf(address _stakeholder) public view returns (uint256) {
+    function depositeOf(address _stakeholder) public view returns (uint256) {
         StakeList storage _personStakeStatus = stakeLists[_stakeholder];
         return _personStakeStatus.stakesAmount;
     }
@@ -208,8 +276,8 @@ contract Staker is Ownable {
     /**
      * @notice A method to get the total amount of the deposied tokens
      */
-    function getTotalStakedAmount() public view returns (uint256) {
-        return totalStakedAmount;
+    function getTotalDepositAmount() public view returns (uint256) {
+        return totalDepositAmount;
     }
 
     /**
@@ -229,20 +297,5 @@ contract Staker is Ownable {
         returns (bool)
     {
         return withdrawFeeApplyStatus[_stakeholder];
-    }
-
-    /* ========== TEST FUNCTION ============ */
-    function setLastTime(address _stakeholder, uint256 _lastTime)
-        public
-        returns (bool)
-    {
-        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
-        _personStakeStatus.lastUpdateTime = _lastTime;
-        return true;
-    }
-
-    function getLastTime(address _stakeholder) public view returns (uint256) {
-        StakeList storage _personStakeStatus = stakeLists[_stakeholder];
-        return _personStakeStatus.lastUpdateTime;
     }
 }

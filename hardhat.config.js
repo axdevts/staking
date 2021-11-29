@@ -1,4 +1,5 @@
 require("@nomiclabs/hardhat-waffle");
+require('@openzeppelin/hardhat-upgrades');
 require("@nomiclabs/hardhat-etherscan");
 const { mnemonic, apiKey, infuraKey } = require('./secrets.json');
 
@@ -16,6 +17,11 @@ module.exports = {
 		rinkeby: {
 			url: 'https://rinkeby.infura.io/v3/' + infuraKey,
 			gas: 10000000,
+			accounts: { mnemonic: mnemonic }
+		},
+		mainnet: {
+			url: 'https://mainnet.infura.io/v3/' + infuraKey,
+			gas: 3000000,
 			accounts: { mnemonic: mnemonic }
 		},
 		ropsten: {
